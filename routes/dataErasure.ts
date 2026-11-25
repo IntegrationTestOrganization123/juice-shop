@@ -21,6 +21,12 @@ const entities = new Entities()
 
 const router = express.Router()
 
+// Allowlist of permitted layout template identifiers mapped to safe relative paths
+const ALLOWED_LAYOUTS: Record<string, string> = {
+  'default': 'dataErasureResult',
+  'dataErasureResult': 'dataErasureResult'
+}
+
 router.get('/', (req: Request, res: Response, next: NextFunction) => {
   void (async () => {
     const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
@@ -101,11 +107,13 @@ router.post('/', (req: Request<Record<string, unknown>, Record<string, unknown>,
       }
 
       if (req.body.layout && utils.isChallengeEnabled(challenges.lfrChallenge)) {
-        const filePath: string = path.resolve(req.body.layout).toLowerCase()
-        const isForbiddenFile: boolean = (filePath.includes('ftp') || filePath.includes('ctf.key') || filePath.includes('encryptionkeys'))
-        if (!isForbiddenFile) {
-          res.render('dataErasureResult', {
-            ...req.body,
+        // Validate layout against an allowlist to prevent path traversal / LFR
+        const requestedLayout = req.body.layout
+        const safeTemplateName = ALLOWED_LAYOUTS[requestedLayout]
+
+        if (safeTemplateName !== undefined) {
+          // Only render known, safe template names — never user-supplied paths
+          res.render(safeTemplateName, {
             ...themeVars
           }, (error, html) => {
             if (!html || error) {
@@ -121,7 +129,6 @@ router.post('/', (req: Request<Record<string, unknown>, Record<string, unknown>,
         }
       } else {
         res.render('dataErasureResult', {
-          ...req.body,
           ...themeVars
         })
       }

@@ -10,7 +10,6 @@ import { challenges, users } from '../data/datacache'
 import { BasketModel } from '../models/basket'
 import * as security from '../lib/insecurity'
 import { UserModel } from '../models/user'
-import * as models from '../models/index'
 import { type User } from '../data/types'
 import * as utils from '../lib/utils'
 
@@ -20,9 +19,19 @@ export function login () {
     verifyPostLoginChallenges(user) // vuln-code-snippet hide-line
     BasketModel.findOrCreate({ where: { UserId: user.id } })
       .then(([basket]: [BasketModel, boolean]) => {
-        const authenticatedUser = { data: user, bid: basket.id } // keep track of original basket
+        const safeUser = {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          deluxeToken: user.deluxeToken,
+          lastLoginIp: user.lastLoginIp,
+          profileImage: user.profileImage,
+          isActive: user.isActive,
+          username: user.username
+        }
+        const authenticatedUser = { data: safeUser, bid: basket.id } // keep track of original basket
         const token = security.authorize(authenticatedUser)
-        security.authenticatedUsers.put(token, authenticatedUser)
+        security.authenticatedUsers.put(token, { data: user, bid: basket.id })
         res.json({ authentication: { token, bid: basket.id, umail: user.email } })
       }).catch((error: Error) => {
         next(error)
@@ -31,8 +40,14 @@ export function login () {
 
   return (req: Request, res: Response, next: NextFunction) => {
     verifyPreLoginChallenges(req) // vuln-code-snippet hide-line
-    models.sequelize.query(`SELECT * FROM Users WHERE email = '${req.body.email || ''}' AND password = '${security.hash(req.body.password || '')}' AND deletedAt IS NULL`, { model: UserModel, plain: true }) // vuln-code-snippet vuln-line loginAdminChallenge loginBenderChallenge loginJimChallenge
-      .then((authenticatedUser) => { // vuln-code-snippet neutral-line loginAdminChallenge loginBenderChallenge loginJimChallenge
+    UserModel.findOne({
+      where: {
+        email: req.body.email || '',
+        password: security.hash(req.body.password || ''),
+        deletedAt: null
+      }
+    }) // vuln-code-snippet vuln-line loginAdminChallenge loginBenderChallenge loginJimChallenge
+      .then((authenticatedUser: UserModel | null) => { // vuln-code-snippet neutral-line loginAdminChallenge loginBenderChallenge loginJimChallenge
         const user = utils.queryResultToJson(authenticatedUser)
         if (user.data?.id && user.data.totpSecret !== '') {
           res.status(401).json({

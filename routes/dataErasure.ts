@@ -101,27 +101,36 @@ router.post('/', (req: Request<Record<string, unknown>, Record<string, unknown>,
       }
 
       if (req.body.layout && utils.isChallengeEnabled(challenges.lfrChallenge)) {
-        const filePath: string = path.resolve(req.body.layout).toLowerCase()
-        const isForbiddenFile: boolean = (filePath.includes('ftp') || filePath.includes('ctf.key') || filePath.includes('encryptionkeys'))
-        if (!isForbiddenFile) {
-          res.render('dataErasureResult', {
-            ...req.body,
-            ...themeVars
-          }, (error, html) => {
-            if (!html || error) {
-              next(new Error(error.message))
-            } else {
-              const sendlfrResponse: string = html.slice(0, 100) + '......'
-              res.send(sendlfrResponse)
-              challengeUtils.solveIf(challenges.lfrChallenge, () => { return true })
-            }
-          })
-        } else {
+        const viewsDir = path.resolve(__dirname, '../views')
+        const requestedLayout = req.body.layout
+        const resolvedPath = path.resolve(viewsDir, requestedLayout)
+        const isForbiddenFile: boolean = !resolvedPath.startsWith(viewsDir + path.sep) && resolvedPath !== viewsDir
+        if (isForbiddenFile) {
           next(new Error('File access not allowed'))
+          return
         }
-      } else {
+        // Strip the layout key from req.body to prevent user-controlled layout override,
+        // then use the validated resolvedPath as the layout
+        const { layout: _layout, ...safeBody } = req.body
+        const relativeLayout = path.relative(viewsDir, resolvedPath)
         res.render('dataErasureResult', {
-          ...req.body,
+          ...safeBody,
+          ...themeVars,
+          layout: relativeLayout
+        }, (error, html) => {
+          if (!html || error) {
+            next(new Error(error.message))
+          } else {
+            const sendlfrResponse: string = html.slice(0, 100) + '......'
+            res.send(sendlfrResponse)
+            challengeUtils.solveIf(challenges.lfrChallenge, () => { return true })
+          }
+        })
+      } else {
+        // Remove layout from req.body to prevent any user-controlled layout override
+        const { layout: _layout, ...safeBody } = req.body
+        res.render('dataErasureResult', {
+          ...safeBody,
           ...themeVars
         })
       }
